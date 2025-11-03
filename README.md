@@ -157,6 +157,10 @@ make clean         # Удаление всех сгенерированных ф
 
 Для оценки качества предсказаний используется скрипт `evaluate.py`. Именно этот скрипт расположен на сервере и тестирует ваше решение. Вы можете создать свою test выборку и симулировать процесс оценки на сервере.
 
+```
+poetry run python -m src.baseline.evaluate --submission output/submissions/submission.csv --solution data/processed/custom_test_solution.csv
+```
+
 ## Метрика
 
 Score рассчитывается на основе RMSE и MAE:
