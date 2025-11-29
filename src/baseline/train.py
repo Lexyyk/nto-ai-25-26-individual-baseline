@@ -13,6 +13,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from . import config, constants
 from .features import add_aggregate_features, handle_missing_values
 from .temporal_split import get_split_date_from_ratio, temporal_split_by_date
+import catboost as cb
 
 
 def train() -> None:
@@ -89,6 +90,21 @@ def train() -> None:
     train_split_final = handle_missing_values(train_split_with_agg, train_split)
     val_split_final = handle_missing_values(val_split_with_agg, train_split)
 
+    print("Casting categorical features to correct types for CatBoost...")
+    for col in config.CAT_FEATURES:
+        # Обрабатываем только те колонки, которые есть в датафрейме
+        if col in train_split_final.columns:
+            # Если колонка числовая (float/int), приводим к int
+            if pd.api.types.is_numeric_dtype(train_split_final[col]):
+                train_split_final[col] = train_split_final[col].fillna(-1).astype(int)
+                val_split_final[col] = val_split_final[col].fillna(-1).astype(int)
+            else:
+                # Если колонка категориальная (pandas.Categorical) или object
+                # Сначала приводим к object, чтобы отвязаться от словаря категорий
+                # Это позволит безопасно сделать fillna("unknown")
+                train_split_final[col] = train_split_final[col].astype(object).fillna("unknown").astype(str)
+                val_split_final[col] = val_split_final[col].astype(object).fillna("unknown").astype(str)
+
     # Define features (X) and target (y)
     # Exclude timestamp, source, target, prediction columns
     exclude_cols = [
@@ -129,11 +145,59 @@ def train() -> None:
         callbacks=fit_params["callbacks"],
     )
 
-    # Evaluate the model
+    # Train CatBoost model
+    print("\nTraining CatBoost model...")
+
+    # Prepare categorical features indices for CatBoost
+    cat_feature_indices = []
+    for i, col in enumerate(features):
+        if col in config.CAT_FEATURES:
+            cat_feature_indices.append(i)
+
+    catboost_model = cb.CatBoostRegressor(**config.CATBOOST_PARAMS)
+
+    # Create Pool objects for CatBoost (better handling of categorical features)
+    train_pool = cb.Pool(
+        X_train, 
+        y_train, 
+        cat_features=cat_feature_indices
+    )
+    val_pool = cb.Pool(
+        X_val, 
+        y_val, 
+        cat_features=cat_feature_indices
+    )
+
+    catboost_model.fit(
+        train_pool,
+        eval_set=val_pool,
+        verbose=False
+    )
+
+    # Evaluate CatBoost model
+    val_preds_cb = catboost_model.predict(X_val)
+    rmse_cb = np.sqrt(mean_squared_error(y_val, val_preds_cb))
+    mae_cb = mean_absolute_error(y_val, val_preds_cb)
+    print(f"CatBoost Validation RMSE: {rmse_cb:.4f}, MAE: {mae_cb:.4f}")
+
     val_preds = model.predict(X_val)
     rmse = np.sqrt(mean_squared_error(y_val, val_preds))
     mae = mean_absolute_error(y_val, val_preds)
-    print(f"\nValidation RMSE: {rmse:.4f}, MAE: {mae:.4f}")
+    print(f"Validation RMSE: {rmse:.4f}, MAE: {mae:.4f}")
+
+    # Ensemble predictions
+    ensemble_preds = (
+        config.ENSEMBLE_WEIGHTS['lightgbm'] * val_preds +
+        config.ENSEMBLE_WEIGHTS['catboost'] * val_preds_cb
+    )
+    rmse_ensemble = np.sqrt(mean_squared_error(y_val, ensemble_preds))
+    mae_ensemble = mean_absolute_error(y_val, ensemble_preds)
+    print(f"\nEnsemble Validation RMSE: {rmse_ensemble:.4f}, MAE: {mae_ensemble:.4f}")
+
+    # Save CatBoost model
+    catboost_model_path = config.MODEL_DIR / config.CATBOOST_MODEL_FILENAME
+    catboost_model.save_model(str(catboost_model_path))
+    print(f"CatBoost model saved to {catboost_model_path}")
 
     # Save the trained model
     model_path = config.MODEL_DIR / config.MODEL_FILENAME

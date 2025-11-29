@@ -18,6 +18,8 @@ TFIDF_VECTORIZER_FILENAME = "tfidf_vectorizer.pkl"
 BERT_EMBEDDINGS_FILENAME = "bert_embeddings.pkl"
 BERT_MODEL_NAME = "DeepPavlov/rubert-base-cased"
 PROCESSED_DATA_FILENAME = "processed_features.parquet"
+# В секцию FILENAMES добавить:
+CATBOOST_MODEL_FILENAME = "catboost_model.cbm"
 
 # --- COLUMN NAMES ---
 # Main columns

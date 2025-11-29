@@ -52,6 +52,31 @@ BERT_DEVICE = "cuda" if torch and torch.cuda.is_available() else "cpu"
 # Limit GPU memory usage to 50% to prevent overheating and OOM errors
 BERT_GPU_MEMORY_FRACTION = 0.75
 
+# После LGB_FIT_PARAMS добавить:
+
+# --- CATBOOST PARAMETERS ---
+CATBOOST_MODEL_FILENAME = constants.CATBOOST_MODEL_FILENAME
+
+CATBOOST_PARAMS = {
+    'iterations': 5500,
+    'learning_rate': 0.01,
+    'depth': 8,  # CatBoost лучше работает с меньшей глубиной
+    'loss_function': 'RMSE',
+    'eval_metric': 'RMSE',
+    'random_seed': 42,
+    'verbose': 100,
+    'early_stopping_rounds': 300,
+    'task_type': 'GPU' if torch and torch.cuda.is_available() else 'CPU',
+    'l2_leaf_reg': 5.0,
+    'bagging_temperature': 0.8,
+    'random_strength': 1.0,
+}
+
+# --- ENSEMBLE PARAMETERS ---
+ENSEMBLE_WEIGHTS = {
+    'lightgbm': 0.5,
+    'catboost': 0.5,
+}
 
 # --- FEATURES ---
 CAT_FEATURES = [

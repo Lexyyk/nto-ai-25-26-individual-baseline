@@ -11,6 +11,7 @@ import pandas as pd
 
 from . import config, constants
 from .features import add_aggregate_features, handle_missing_values
+import catboost as cb
 
 
 def predict() -> None:
@@ -51,6 +52,14 @@ def predict() -> None:
     print("Handling missing values...")
     test_set_final = handle_missing_values(test_set_with_agg, train_set)
 
+    print("Casting categorical features to correct types (matching training)...")
+    for col in config.CAT_FEATURES:
+        if col in test_set_final.columns:
+            if pd.api.types.is_numeric_dtype(test_set_final[col]):
+                test_set_final[col] = test_set_final[col].fillna(-1).astype(int)
+            else:
+                test_set_final[col] = test_set_final[col].astype(object).fillna("unknown").astype(str)
+
     # Define features (exclude source, target, prediction, timestamp columns)
     exclude_cols = [
         constants.COL_SOURCE,
@@ -77,9 +86,35 @@ def predict() -> None:
     print(f"\nLoading model from {model_path}...")
     model = lgb.Booster(model_file=str(model_path))
 
+    # Load CatBoost model
+    catboost_model_path = config.MODEL_DIR / config.CATBOOST_MODEL_FILENAME
+    if not catboost_model_path.exists():
+        raise FileNotFoundError(
+            f"CatBoost model not found at {catboost_model_path}. "
+            "Please run 'poetry run python -m src.baseline.train' first."
+        )
+
+    print(f"Loading CatBoost model from {catboost_model_path}...")
+    catboost_model = cb.CatBoostRegressor()
+    catboost_model.load_model(str(catboost_model_path))
+
     # Generate predictions
-    print("Generating predictions...")
-    test_preds = model.predict(X_test)
+    # print("Generating predictions...")
+    # test_preds = model.predict(X_test)
+
+    # Generate predictions from both models
+    print("Generating predictions from LightGBM...")
+    lgb_preds = model.predict(X_test)
+
+    print("Generating predictions from CatBoost...")
+    cb_preds = catboost_model.predict(X_test)
+
+    # Ensemble predictions
+    print("Combining ensemble predictions...")
+    test_preds = (
+        config.ENSEMBLE_WEIGHTS['lightgbm'] * lgb_preds +
+        config.ENSEMBLE_WEIGHTS['catboost'] * cb_preds
+    )
 
     # Clip predictions to be within the valid rating range [0, 10]
     clipped_preds = np.clip(test_preds, constants.PREDICTION_MIN_VALUE, constants.PREDICTION_MAX_VALUE)
